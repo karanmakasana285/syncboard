@@ -74,6 +74,27 @@ export default function BoardDetailPage() {
       }))
     })
 
+    socket.on('column:created', (column) => {
+      setColumns((prev) => {
+        if (prev.some((c) => c._id === column._id)) return prev
+        return [...prev, column]
+      })
+      setCardsByColumn((prev) => ({ ...prev, [column._id]: [] }))
+    })
+
+    socket.on('column:updated', (column) => {
+      setColumns((prev) => prev.map((c) => (c._id === column._id ? column : c)))
+    })
+
+    socket.on('column:deleted', ({ columnId }) => {
+      setColumns((prev) => prev.filter((c) => c._id !== columnId))
+      setCardsByColumn((prev) => {
+        const updated = { ...prev }
+        delete updated[columnId]
+        return updated
+      })
+    })
+
     return () => {
       disconnectSocket()
     }

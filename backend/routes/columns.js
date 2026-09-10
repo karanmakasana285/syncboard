@@ -2,12 +2,12 @@ const express = require('express');
 const Column = require('../models/Column');
 const requireAuth = require('../middleware/auth');
 const { getAuthorizedBoard } = require('../utils/authorize');
+const { getIO } = require('../socket');
 
 const router = express.Router();
 
 router.use(requireAuth);
 
-// POST /api/columns - create a column on a board
 router.post('/', async (req, res) => {
   try {
     const { name, boardId, order } = req.body;
@@ -19,6 +19,9 @@ router.post('/', async (req, res) => {
     if (!board) return res.status(404).json({ error: 'Board not found' });
 
     const column = await Column.create({ name, board: boardId, order });
+
+    getIO().to(boardId).emit('column:created', column);
+
     res.status(201).json(column);
   } catch (err) {
     console.error('Create column error:', err.message);
@@ -26,7 +29,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/columns/board/:boardId - list columns for a board
 router.get('/board/:boardId', async (req, res) => {
   try {
     const board = await getAuthorizedBoard(req.params.boardId, req.userId);
@@ -40,19 +42,20 @@ router.get('/board/:boardId', async (req, res) => {
   }
 });
 
-// PATCH /api/columns/:id - update a column (e.g. rename, reorder)
 router.patch('/:id', async (req, res) => {
   try {
     const column = await Column.findById(req.params.id);
     if (!column) return res.status(404).json({ error: 'Column not found' });
 
     const board = await getAuthorizedBoard(column.board, req.userId);
-    if (!board) return res.status(404).json({ error: 'Column not found' }); // same message - don't leak existence
+    if (!board) return res.status(404).json({ error: 'Column not found' });
 
     const { name, order } = req.body;
     if (name !== undefined) column.name = name;
     if (order !== undefined) column.order = order;
     await column.save();
+
+    getIO().to(column.board.toString()).emit('column:updated', column);
 
     res.json(column);
   } catch (err) {
@@ -61,7 +64,6 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/columns/:id
 router.delete('/:id', async (req, res) => {
   try {
     const column = await Column.findById(req.params.id);
@@ -71,6 +73,9 @@ router.delete('/:id', async (req, res) => {
     if (!board) return res.status(404).json({ error: 'Column not found' });
 
     await column.deleteOne();
+
+    getIO().to(column.board.toString()).emit('column:deleted', { columnId: column._id });
+
     res.json({ message: 'Column deleted' });
   } catch (err) {
     console.error('Delete column error:', err.message);
