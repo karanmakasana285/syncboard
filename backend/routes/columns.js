@@ -1,5 +1,6 @@
 const express = require('express');
 const Column = require('../models/Column');
+const Card = require('../models/Card');
 const requireAuth = require('../middleware/auth');
 const { getAuthorizedBoard } = require('../utils/authorize');
 const { getIO } = require('../socket');
@@ -72,6 +73,7 @@ router.delete('/:id', async (req, res) => {
     const board = await getAuthorizedBoard(column.board, req.userId);
     if (!board) return res.status(404).json({ error: 'Column not found' });
 
+    await Card.deleteMany({ column: column._id }); // cascade delete - prevent orphaned cards
     await column.deleteOne();
 
     getIO().to(column.board.toString()).emit('column:deleted', { columnId: column._id });
