@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import AuthPage from './pages/AuthPage'
 import BoardsPage from './pages/BoardsPage'
+import BoardDetailPage from './pages/BoardDetailPage'
 import { useAuth } from './context/AuthContext'
 
 function ProtectedRoute({ children }) {
@@ -17,6 +18,14 @@ function App() {
         element={
           <ProtectedRoute>
             <BoardsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/boards/:boardId"
+        element={
+          <ProtectedRoute>
+            <BoardDetailPage />
           </ProtectedRoute>
         }
       />
