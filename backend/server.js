@@ -11,6 +11,9 @@ app.use(express.json());
 connectDB();
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/boards', require('./routes/boards'));
+app.use('/api/columns', require('./routes/columns'));
+app.use('/api/cards', require('./routes/cards'));
 
 app.get('/health', (req, res) => {
   const mongoose = require('mongoose');
