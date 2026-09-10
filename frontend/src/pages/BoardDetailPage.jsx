@@ -10,6 +10,7 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import Column from '../components/Column'
+import { connectSocket, disconnectSocket } from '../socket'
 
 export default function BoardDetailPage() {
   const { boardId } = useParams()
@@ -25,6 +26,57 @@ export default function BoardDetailPage() {
 
   useEffect(() => {
     loadBoard()
+  }, [boardId])
+
+  useEffect(() => {
+    const socket = connectSocket()
+    if (!socket) return
+
+    socket.emit('board:join', boardId)
+
+    socket.on('board:error', (err) => {
+      console.error('Socket board:error:', err)
+    })
+
+    // another client created a card - add it to that column's list, unless
+    // we already have it (avoids duplicates if our own optimistic update
+    // and the broadcast both add it)
+    socket.on('card:created', (card) => {
+      setCardsByColumn((prev) => {
+        const existing = prev[card.column] || []
+        if (existing.some((c) => c._id === card._id)) return prev
+        return { ...prev, [card.column]: [...existing, card] }
+      })
+    })
+
+    // another client updated a card - could be a title edit OR a move between
+    // columns. We handle both by removing the card from EVERY column first,
+    // then re-inserting it into its current column - simplest way to handle
+    // "did it move columns" without extra branching logic.
+    socket.on('card:updated', (card) => {
+      setCardsByColumn((prev) => {
+        const updated = {}
+        for (const colId of Object.keys(prev)) {
+          updated[colId] = prev[colId].filter((c) => c._id !== card._id)
+        }
+        const destColId = card.column
+        updated[destColId] = [...(updated[destColId] || []), card].sort(
+          (a, b) => a.order - b.order
+        )
+        return updated
+      })
+    })
+
+    socket.on('card:deleted', ({ cardId, columnId }) => {
+      setCardsByColumn((prev) => ({
+        ...prev,
+        [columnId]: (prev[columnId] || []).filter((c) => c._id !== cardId),
+      }))
+    })
+
+    return () => {
+      disconnectSocket()
+    }
   }, [boardId])
 
   async function loadBoard() {

@@ -1,9 +1,13 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const { initSocket } = require('./socket');
 
 const app = express();
+const httpServer = http.createServer(app); // Express app now runs inside a raw HTTP server
+initSocket(httpServer); // attach Socket.io to that same server
 
 app.use(cors());
 app.use(express.json());
@@ -17,7 +21,7 @@ app.use('/api/cards', require('./routes/cards'));
 
 app.get('/health', (req, res) => {
   const mongoose = require('mongoose');
-  const dbState = mongoose.connection.readyState; // 1 = connected
+  const dbState = mongoose.connection.readyState;
   res.json({
     status: 'ok',
     db: dbState === 1 ? 'connected' : 'not connected',
@@ -25,4 +29,4 @@ app.get('/health', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`)); // note: httpServer.listen, not app.listen

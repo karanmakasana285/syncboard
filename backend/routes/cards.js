@@ -3,12 +3,12 @@ const Card = require('../models/Card');
 const Column = require('../models/Column');
 const requireAuth = require('../middleware/auth');
 const { getAuthorizedBoard } = require('../utils/authorize');
+const { getIO } = require('../socket');
 
 const router = express.Router();
 
 router.use(requireAuth);
 
-// helper: given a column id, find its board and authorize the user
 async function authorizeViaColumn(columnId, userId) {
   const column = await Column.findById(columnId);
   if (!column) return null;
@@ -17,7 +17,6 @@ async function authorizeViaColumn(columnId, userId) {
   return column;
 }
 
-// POST /api/cards - create a card in a column
 router.post('/', async (req, res) => {
   try {
     const { title, description, columnId, order, labels, dueDate, assignees } = req.body;
@@ -37,6 +36,9 @@ router.post('/', async (req, res) => {
       dueDate,
       assignees,
     });
+
+    getIO().to(column.board.toString()).emit('card:created', card);
+
     res.status(201).json(card);
   } catch (err) {
     console.error('Create card error:', err.message);
@@ -44,7 +46,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/cards/column/:columnId - list cards in a column
 router.get('/column/:columnId', async (req, res) => {
   try {
     const column = await authorizeViaColumn(req.params.columnId, req.userId);
@@ -58,16 +59,14 @@ router.get('/column/:columnId', async (req, res) => {
   }
 });
 
-// PATCH /api/cards/:id - update a card (title, description, column/order for moves, labels, dueDate, assignees)
 router.patch('/:id', async (req, res) => {
   try {
     const card = await Card.findById(req.params.id);
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
-    const column = await authorizeViaColumn(card.column, req.userId);
-    if (!column) return res.status(404).json({ error: 'Card not found' });
+    const originalColumn = await authorizeViaColumn(card.column, req.userId);
+    if (!originalColumn) return res.status(404).json({ error: 'Card not found' });
 
-    // if moving to a different column, verify the target column is on an authorized board too
     if (req.body.columnId && req.body.columnId !== card.column.toString()) {
       const targetColumn = await authorizeViaColumn(req.body.columnId, req.userId);
       if (!targetColumn) return res.status(404).json({ error: 'Target column not found' });
@@ -82,8 +81,10 @@ router.patch('/:id', async (req, res) => {
     if (dueDate !== undefined) card.dueDate = dueDate;
     if (assignees !== undefined) card.assignees = assignees;
 
-    card.version += 1; // every successful update bumps version - this is what Step 6's conflict resolution will key off of
+    card.version += 1;
     await card.save();
+
+    getIO().to(originalColumn.board.toString()).emit('card:updated', card);
 
     res.json(card);
   } catch (err) {
@@ -92,7 +93,6 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/cards/:id
 router.delete('/:id', async (req, res) => {
   try {
     const card = await Card.findById(req.params.id);
@@ -102,6 +102,9 @@ router.delete('/:id', async (req, res) => {
     if (!column) return res.status(404).json({ error: 'Card not found' });
 
     await card.deleteOne();
+
+    getIO().to(column.board.toString()).emit('card:deleted', { cardId: card._id, columnId: card.column });
+
     res.json({ message: 'Card deleted' });
   } catch (err) {
     console.error('Delete card error:', err.message);
