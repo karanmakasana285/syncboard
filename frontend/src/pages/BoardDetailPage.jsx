@@ -19,6 +19,8 @@ export default function BoardDetailPage() {
   const [cardsByColumn, setCardsByColumn] = useState({})
   const [newColumnName, setNewColumnName] = useState('')
   const [error, setError] = useState('')
+  const [openCardId, setOpenCardId] = useState(null) // which card, if any, is currently open in an edit modal
+  const [conflictToast, setConflictToast] = useState(null) // { cardId, newTitle } when a conflict affects the open card
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -92,6 +94,18 @@ export default function BoardDetailPage() {
         const updated = { ...prev }
         delete updated[columnId]
         return updated
+      })
+    })
+
+    // Option A (locked decision): broadcast reaches everyone in the room,
+    // but we only show a toast if the affected card is the one THIS client
+    // currently has open in its edit modal - checked via openCardId.
+    socket.on('card:conflict', ({ cardId, newTitle }) => {
+      setOpenCardId((currentOpenId) => {
+        if (currentOpenId === cardId) {
+          setConflictToast({ cardId, newTitle })
+        }
+        return currentOpenId
       })
     })
 
@@ -240,6 +254,28 @@ export default function BoardDetailPage() {
         <button type="submit">Add Column</button>
       </form>
 
+      {conflictToast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 16,
+            right: 16,
+            background: '#fff3cd',
+            border: '1px solid #ffc107',
+            padding: 12,
+            borderRadius: 6,
+            maxWidth: 300,
+          }}
+        >
+          <p style={{ margin: 0 }}>
+            This card changed while you had it open (current title: "
+            {conflictToast.newTitle}"). Your save still went through, but double-check
+            nothing important got overwritten.
+          </p>
+          <button onClick={() => setConflictToast(null)}>Dismiss</button>
+        </div>
+      )}
+
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 16 }}>
           {columns.map((col) => (
@@ -248,6 +284,8 @@ export default function BoardDetailPage() {
               column={col}
               cards={cardsByColumn[col._id] || []}
               onAddCard={() => handleCreateCard(col._id)}
+              openCardId={openCardId}
+              setOpenCardId={setOpenCardId}
             />
           ))}
         </div>
