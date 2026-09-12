@@ -1,0 +1,154 @@
+# SyncBoard
+
+A real-time collaborative Kanban board — built to explore the engineering problems that separate a CRUD app from a genuinely multi-user product: live synchronization across clients, conflict resolution when edits race each other, and the caching/rate-limiting layer a real API needs at scale.
+
+**[Demo video](#)** &middot; **[Live demo](#)** *(links added once recorded/deployed)*
+
+---
+
+## Why this project exists
+
+Most portfolio Kanban boards are just CRUD with drag-and-drop. SyncBoard is intentionally built around the parts that are *hard* precisely because multiple people can touch the same data at the same time:
+
+- What happens when two people edit the same card within milliseconds of each other?
+- How do you tell a user their change was overwritten, including if they weren't even looking at the screen when it happened?
+- How do you keep a read-heavy API fast without serving stale data the moment something changes?
+
+This project answers each of those with a real, tested implementation — not just a diagram.
+
+## Core features
+
+- **Auth** — JWT-based signup/login, bcrypt password hashing
+- **Boards, columns, and cards** — full CRUD, drag-and-drop reordering (including precise drop-position detection, not just "always append")
+- **Real-time collaboration** — Socket.io-powered live sync of every card/column change across all connected clients, with room-level authorization (a valid token alone isn't enough — you must actually be a collaborator on that board)
+- **Conflict resolution** — server-side version tracking detects when two edits race; the later write always succeeds (last-write-wins), the "losing" user gets a live notification if online, and a persistent conflict record is kept on the card itself so the change is never silently, untraceably lost even if that user was offline at the time
+- **Caching** — Redis-backed caching on board reads with automatic invalidation on every write, verified end-to-end (not just assumed to work)
+- **Rate limiting** — tiered limits (stricter on auth routes, more permissive on general API usage)
+- **Automated tests** — Jest + Supertest coverage specifically targeting the conflict-resolution logic, including a regression test for a real bug caught during manual testing
+
+## Architecture
+
+```
+User drags a card (frontend)
+      |
+      v
+Frontend emits a Socket.io event ("card:moved") to backend
+      |
+      v
+Backend checks the user is an authorized collaborator on this board
+      |
+      v
+Backend validates + updates MongoDB (new position, version++)
+      |
+      v
+Backend invalidates the Redis cache entry for that board
+      |
+      v
+Backend broadcasts "card:moved" to every other client in that board's Socket.io room
+      |
+      v
+All connected clients update instantly - no refresh needed
+```
+
+REST API reads follow a separate cache-first path:
+
+```
+GET /api/boards/:id
+      |
+      v
+Rate limiter checks the request isn't excessive
+      |
+      v
+Check Redis - if cached, return immediately
+      |
+      v
+If not cached: fetch from MongoDB -> store in Redis (60s TTL) -> return
+```
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Frontend | React (Vite), `@dnd-kit` for drag-and-drop |
+| Backend | Node.js, Express |
+| Real-time | Socket.io |
+| Database | MongoDB (Atlas in production; Docker Compose for local dev) |
+| Caching | Redis (Docker Compose locally; Upstash planned for deployment) |
+| Auth | JWT + bcrypt |
+| Testing | Jest, Supertest, `mongodb-memory-server` |
+| Rate limiting | `express-rate-limit` |
+
+## Getting started
+
+### Prerequisites
+- Node.js (v18+)
+- Docker Desktop (for local MongoDB + Redis)
+- A MongoDB Atlas connection string (or use the Docker MongoDB instance for fully offline dev)
+
+### 1. Clone and start local infrastructure
+```bash
+git clone https://github.com/karanmakasana285/syncboard.git
+cd syncboard
+docker-compose up -d
+```
+This starts local MongoDB (port 27017) and Redis (port 6379) containers.
+
+### 2. Backend setup
+```bash
+cd backend
+npm install
+cp .env.example .env
+# fill in MONGODB_URI, JWT_SECRET, PORT in .env
+npm run dev
+```
+
+### 3. Frontend setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Visit the printed local URL (typically `http://localhost:5173`).
+
+### 4. Run tests
+```bash
+cd backend
+npm test
+```
+
+## Known limitations (by design, not oversight)
+
+- **Same-field conflicts are not merged.** If two users edit the exact same field at nearly the same moment, the later write wins outright — there's no field-level merge or operational-transform logic (the much harder approach tools like Google Docs use). This was a deliberate simplicity tradeoff for this project's scope.
+- **Conflict notifications broadcast to the whole board room**, filtered client-side to only display for the affected user's open card. This is fine given the trust model (board collaborators already see all board activity) but wouldn't be appropriate in a system with per-user-private cards.
+- **JWT is stored in `localStorage`**, not an httpOnly cookie — simpler for this project's scope, at the cost of theoretical XSS exposure a cookie-based approach would avoid.
+
+## What I'd build next
+
+- Presence indicators (who's currently viewing/editing a board)
+- An activity log / audit trail of card and column changes
+- Field-level conflict detection instead of version-level, to narrow the blast radius of a race further
+- Full deployment (Vercel + Render/Railway + MongoDB Atlas + Upstash)
+
+## Project structure
+
+```
+syncboard/
+  backend/
+    app.js            - Express app setup (importable for tests)
+    server.js          - real entry point (DB/Redis connect + listen)
+    models/             - Mongoose schemas (User, Board, Column, Card)
+    routes/              - REST endpoints
+    socket/               - Socket.io server + room auth
+    middleware/            - JWT auth, rate limiting
+    utils/                   - shared authorization helper
+    tests/                    - Jest/Supertest suite
+  frontend/
+    src/
+      pages/                    - route-level components
+      components/                - reusable UI (Card, Column, modals)
+      context/                     - auth state
+      api/                          - axios client
+      socket/                        - socket connection helper
+  docker-compose.yml               - local MongoDB + Redis
+```
