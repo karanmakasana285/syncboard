@@ -12,15 +12,91 @@ import {
 import Column from '../components/Column'
 import { connectSocket, disconnectSocket } from '../socket'
 
+function AddColumnCard({ onAdd }) {
+  const [isAdding, setIsAdding] = useState(false)
+  const [name, setName] = useState('')
+
+  function submit() {
+    if (!name.trim()) {
+      setIsAdding(false)
+      return
+    }
+    onAdd(name.trim())
+    setName('')
+    setIsAdding(false)
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') submit()
+    if (e.key === 'Escape') {
+      setName('')
+      setIsAdding(false)
+    }
+  }
+
+  if (isAdding) {
+    return (
+      <div
+        style={{
+          border: '1px solid var(--color-accent)',
+          borderRadius: 12,
+          padding: 14,
+          width: 250,
+          flexShrink: 0,
+          background: 'var(--color-surface)',
+        }}
+      >
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={submit}
+          placeholder="Column name"
+          style={{
+            width: '100%',
+            padding: '9px 11px',
+            border: '1px solid var(--color-border)',
+            borderRadius: 6,
+            fontSize: 14,
+            fontFamily: 'var(--font-body)',
+            background: 'var(--color-paper)',
+            boxSizing: 'border-box',
+          }}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div
+      onClick={() => setIsAdding(true)}
+      style={{
+        border: '1px dashed var(--color-border)',
+        borderRadius: 12,
+        padding: 14,
+        width: 210,
+        minHeight: 64,
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+      }}
+    >
+      <p style={{ color: 'var(--color-ink-faint)', fontSize: 14, margin: 0 }}>+ Add column</p>
+    </div>
+  )
+}
+
 export default function BoardDetailPage() {
   const { boardId } = useParams()
   const [board, setBoard] = useState(null)
   const [columns, setColumns] = useState([])
   const [cardsByColumn, setCardsByColumn] = useState({})
-  const [newColumnName, setNewColumnName] = useState('')
   const [error, setError] = useState('')
-  const [openCardId, setOpenCardId] = useState(null) // which card, if any, is currently open in an edit modal
-  const [conflictToast, setConflictToast] = useState(null) // { cardId, newTitle } when a conflict affects the open card
+  const [openCardId, setOpenCardId] = useState(null)
+  const [conflictToast, setConflictToast] = useState(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -40,9 +116,6 @@ export default function BoardDetailPage() {
       console.error('Socket board:error:', err)
     })
 
-    // another client created a card - add it to that column's list, unless
-    // we already have it (avoids duplicates if our own optimistic update
-    // and the broadcast both add it)
     socket.on('card:created', (card) => {
       setCardsByColumn((prev) => {
         const existing = prev[card.column] || []
@@ -51,10 +124,6 @@ export default function BoardDetailPage() {
       })
     })
 
-    // another client updated a card - could be a title edit OR a move between
-    // columns. We handle both by removing the card from EVERY column first,
-    // then re-inserting it into its current column - simplest way to handle
-    // "did it move columns" without extra branching logic.
     socket.on('card:updated', (card) => {
       setCardsByColumn((prev) => {
         const updated = {}
@@ -97,9 +166,6 @@ export default function BoardDetailPage() {
       })
     })
 
-    // Option A (locked decision): broadcast reaches everyone in the room,
-    // but we only show a toast if the affected card is the one THIS client
-    // currently has open in its edit modal - checked via openCardId.
     socket.on('card:conflict', ({ cardId, newTitle }) => {
       setOpenCardId((currentOpenId) => {
         if (currentOpenId === cardId) {
@@ -134,21 +200,17 @@ export default function BoardDetailPage() {
     }
   }
 
-  async function handleCreateColumn(e) {
-    e.preventDefault()
-    if (!newColumnName.trim()) return
+  async function handleCreateColumn(name) {
     try {
-      await api.post('/columns', { name: newColumnName, boardId, order: columns.length })
-      setNewColumnName('')
+      await api.post('/columns', { name, boardId, order: columns.length })
       loadBoard()
     } catch (err) {
       setError('Failed to create column')
     }
   }
 
-  async function handleCreateCard(columnId) {
-    const title = prompt('Card title:')
-    if (!title) return
+  async function handleCreateCard(columnId, title) {
+    if (!title || !title.trim()) return
     try {
       const existingCards = cardsByColumn[columnId] || []
       await api.post('/cards', { title, columnId, order: existingCards.length })
@@ -175,22 +237,14 @@ export default function BoardDetailPage() {
     const destColumnId = overIsColumn ? overId : findColumnIdForCard(overId)
     if (!sourceColumnId || !destColumnId) return
 
-    // remove the card from its source column's array
     const sourceCards = [...(cardsByColumn[sourceColumnId] || [])]
     const cardIndex = sourceCards.findIndex((c) => c._id === activeCardId)
     if (cardIndex === -1) return
     const [movedCard] = sourceCards.splice(cardIndex, 1)
 
-    // when moving within the same column, destCards IS sourceCards (same array,
-    // already missing the card) - when moving across columns, it's a separate copy
     const destCards =
       sourceColumnId === destColumnId ? sourceCards : [...(cardsByColumn[destColumnId] || [])]
 
-        // figure out exactly where to insert: compare the dragged card's vertical
-    // position against the target card's midpoint, so dropping in the top half
-    // inserts BEFORE it and dropping in the bottom half inserts AFTER it.
-    // without this, we always insert before the target - which made "drop at
-    // the very end" impossible, since the last card always intercepts the drop.
     let insertIndex = destCards.length
     if (!overIsColumn) {
       const overIndex = destCards.findIndex((c) => c._id === overId)
@@ -203,12 +257,9 @@ export default function BoardDetailPage() {
     }
     destCards.splice(insertIndex, 0, { ...movedCard, column: destColumnId })
 
-    // THE FIX: re-sequence order values (0,1,2...) for every card in each
-    // affected column, not just the one that moved - this is what prevents ties
     const reindexedSource = sourceCards.map((c, i) => ({ ...c, order: i }))
     const reindexedDest = destCards.map((c, i) => ({ ...c, order: i }))
 
-    // optimistic UI update
     setCardsByColumn((prev) => ({
       ...prev,
       [sourceColumnId]: reindexedSource,
@@ -218,7 +269,6 @@ export default function BoardDetailPage() {
     try {
       const updates = []
       if (sourceColumnId !== destColumnId) {
-        // source column's remaining cards shifted down - persist their new order too
         reindexedSource.forEach((c) =>
           updates.push(api.patch(`/cards/${c._id}`, { order: c.order }))
         )
@@ -237,57 +287,92 @@ export default function BoardDetailPage() {
     }
   }
 
-  if (error) return <p style={{ color: 'red', padding: 20 }}>{error}</p>
-  if (!board) return <p style={{ padding: 20 }}>Loading...</p>
+  if (error) {
+    return (
+      <div style={{ padding: 48, textAlign: 'center' }}>
+        <p style={{ color: 'var(--color-conflict)', fontSize: 14 }}>{error}</p>
+      </div>
+    )
+  }
+
+  if (!board) {
+    return (
+      <div style={{ padding: 48, textAlign: 'center' }}>
+        <p style={{ color: 'var(--color-ink-faint)', fontSize: 14 }}>Loading board...</p>
+      </div>
+    )
+  }
 
   return (
-    <div style={{ padding: 20 }}>
-      <Link to="/boards">← Back to boards</Link>
-      <h1>{board.name}</h1>
+    <div style={{ padding: '32px 32px 48px', maxWidth: 1200, margin: '0 auto' }}>
+      <Link
+        to="/boards"
+        style={{ color: 'var(--color-accent)', fontSize: 14.5, fontWeight: 500, textDecoration: 'none' }}
+      >
+        &larr; All boards
+      </Link>
+      <h1
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 28,
+          fontWeight: 500,
+          color: 'var(--color-ink)',
+          margin: '4px 0 16px',
+        }}
+      >
+        {board.name}
+      </h1>
 
-      <form onSubmit={handleCreateColumn} style={{ margin: '12px 0' }}>
-        <input
-          placeholder="New column name"
-          value={newColumnName}
-          onChange={(e) => setNewColumnName(e.target.value)}
-        />
-        <button type="submit">Add Column</button>
-      </form>
+      <div style={{ borderBottom: '1px solid var(--color-border)', marginBottom: 24 }} />
 
       {conflictToast && (
         <div
           style={{
             position: 'fixed',
-            top: 16,
-            right: 16,
-            background: '#fff3cd',
-            border: '1px solid #ffc107',
-            padding: 12,
-            borderRadius: 6,
+            top: 20,
+            right: 20,
+            background: 'var(--color-conflict-bg)',
+            border: '1px solid var(--color-conflict)',
+            padding: 14,
+            borderRadius: 8,
             maxWidth: 300,
+            boxShadow: 'var(--shadow-dragging)',
           }}
         >
-          <p style={{ margin: 0 }}>
-            This card changed while you had it open (current title: "
-            {conflictToast.newTitle}"). Your save still went through, but double-check
-            nothing important got overwritten.
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--color-ink)' }}>
+            This card changed while you had it open (current title: "{conflictToast.newTitle}").
+            Your save still went through, but double-check nothing important got overwritten.
           </p>
-          <button onClick={() => setConflictToast(null)}>Dismiss</button>
+          <button
+            onClick={() => setConflictToast(null)}
+            style={{
+              marginTop: 8,
+              background: 'none',
+              border: 'none',
+              color: 'var(--color-conflict)',
+              fontSize: 13,
+              cursor: 'pointer',
+              padding: 0,
+            }}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-        <div style={{ display: 'flex', gap: 16 }}>
+        <div style={{ display: 'flex', gap: 20, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
           {columns.map((col) => (
             <Column
               key={col._id}
               column={col}
               cards={cardsByColumn[col._id] || []}
-              onAddCard={() => handleCreateCard(col._id)}
+              onAddCard={(title) => handleCreateCard(col._id, title)}
               openCardId={openCardId}
               setOpenCardId={setOpenCardId}
             />
           ))}
+          <AddColumnCard onAdd={handleCreateColumn} />
         </div>
       </DndContext>
     </div>
