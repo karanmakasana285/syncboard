@@ -10,6 +10,14 @@ const cardSchema = new mongoose.Schema(
     dueDate: { type: Date },
     assignees: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     version: { type: Number, default: 0 }, // incremented on every update - drives last-write-wins conflict resolution (locked decision)
+    conflictHistory: [
+      {
+        overwrittenBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        overwrittenAt: { type: Date, default: Date.now },
+        previousTitle: String,
+        previousDescription: String,
+      },
+    ], // populated only when a version mismatch is detected during save - not a full edit log
   },
   { timestamps: true }
 );

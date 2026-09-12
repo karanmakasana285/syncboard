@@ -67,6 +67,24 @@ router.patch('/:id', async (req, res) => {
     const originalColumn = await authorizeViaColumn(card.column, req.userId);
     if (!originalColumn) return res.status(404).json({ error: 'Card not found' });
 
+    // CONFLICT DETECTION: compare the version the client THINKS it's editing
+    // against the card's actual current version. If they differ, someone else
+    // saved a change after this client last loaded the card.
+    // expectedVersion is optional (drag/reorder updates don't send it) -
+    // only title/description edits from the modal include it, since that's
+    // the only flow where a stale-snapshot conflict can actually happen.
+    const { expectedVersion } = req.body;
+    const isConflict = expectedVersion !== undefined && expectedVersion !== card.version;
+
+    if (isConflict) {
+      // record what's about to be overwritten, before we apply the new values
+      card.conflictHistory.push({
+        overwrittenBy: req.userId,
+        previousTitle: card.title,
+        previousDescription: card.description,
+      });
+    }
+
     if (req.body.columnId && req.body.columnId !== card.column.toString()) {
       const targetColumn = await authorizeViaColumn(req.body.columnId, req.userId);
       if (!targetColumn) return res.status(404).json({ error: 'Target column not found' });
@@ -85,6 +103,17 @@ router.patch('/:id', async (req, res) => {
     await card.save();
 
     getIO().to(originalColumn.board.toString()).emit('card:updated', card);
+
+    // separate, targeted event just for the conflict itself - frontend clients
+    // filter this to only show a toast if THEY currently have this exact card
+    // open for editing (Option A from the Step 6 design discussion)
+    if (isConflict) {
+      getIO().to(originalColumn.board.toString()).emit('card:conflict', {
+        cardId: card._id,
+        newTitle: card.title,
+        overwrittenBy: req.userId,
+      });
+    }
 
     res.json(card);
   } catch (err) {
