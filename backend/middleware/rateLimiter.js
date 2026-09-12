@@ -5,7 +5,13 @@ const rateLimit = require('express-rate-limit');
 // generous enough for normal use, but stops runaway loops or abuse.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes, in milliseconds
-  max: 100,
+  // raised from 100 to 400 after hitting the original limit during normal dev
+  // usage - a single board load fires several requests at once (board +
+  // one per column + one per column's cards), and React StrictMode
+  // double-invokes effects in development, so real usage approaches 100
+  // faster than expected. 400 still meaningfully caps abuse while giving
+  // normal use real headroom.
+  max: 400,
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true, // adds RateLimit-* headers so clients can see their remaining quota
   legacyHeaders: false,
