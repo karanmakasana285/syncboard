@@ -4,6 +4,7 @@ const Column = require('../models/Column');
 const requireAuth = require('../middleware/auth');
 const { getAuthorizedBoard } = require('../utils/authorize');
 const { getIO } = require('../socket');
+const { redisClient } = require('../config/redis');
 
 const router = express.Router();
 
@@ -38,6 +39,7 @@ router.post('/', async (req, res) => {
     });
 
     getIO().to(column.board.toString()).emit('card:created', card);
+    await redisClient.del(`board:${column.board}`); // invalidate - board's cached data may now be stale
 
     res.status(201).json(card);
   } catch (err) {
@@ -103,6 +105,7 @@ router.patch('/:id', async (req, res) => {
     await card.save();
 
     getIO().to(originalColumn.board.toString()).emit('card:updated', card);
+    await redisClient.del(`board:${originalColumn.board}`);
 
     // separate, targeted event just for the conflict itself - frontend clients
     // filter this to only show a toast if THEY currently have this exact card
@@ -133,6 +136,7 @@ router.delete('/:id', async (req, res) => {
     await card.deleteOne();
 
     getIO().to(column.board.toString()).emit('card:deleted', { cardId: card._id, columnId: card.column });
+    await redisClient.del(`board:${column.board}`);
 
     res.json({ message: 'Card deleted' });
   } catch (err) {

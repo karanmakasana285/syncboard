@@ -4,6 +4,7 @@ const Card = require('../models/Card');
 const requireAuth = require('../middleware/auth');
 const { getAuthorizedBoard } = require('../utils/authorize');
 const { getIO } = require('../socket');
+const { redisClient } = require('../config/redis');
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ router.post('/', async (req, res) => {
     const column = await Column.create({ name, board: boardId, order });
 
     getIO().to(boardId).emit('column:created', column);
+    await redisClient.del(`board:${boardId}`);
 
     res.status(201).json(column);
   } catch (err) {
@@ -57,6 +59,7 @@ router.patch('/:id', async (req, res) => {
     await column.save();
 
     getIO().to(column.board.toString()).emit('column:updated', column);
+    await redisClient.del(`board:${column.board}`);
 
     res.json(column);
   } catch (err) {
@@ -77,6 +80,7 @@ router.delete('/:id', async (req, res) => {
     await column.deleteOne();
 
     getIO().to(column.board.toString()).emit('column:deleted', { columnId: column._id });
+    await redisClient.del(`board:${column.board}`);
 
     res.json({ message: 'Column deleted' });
   } catch (err) {
