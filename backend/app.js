@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const { initSocket } = require('./socket');
+const { apiLimiter, authLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -11,10 +12,10 @@ initSocket(httpServer);
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/boards', require('./routes/boards'));
-app.use('/api/columns', require('./routes/columns'));
-app.use('/api/cards', require('./routes/cards'));
+app.use('/api/auth', authLimiter, require('./routes/auth')); // stricter limit - brute-force protection
+app.use('/api/boards', apiLimiter, require('./routes/boards'));
+app.use('/api/columns', apiLimiter, require('./routes/columns'));
+app.use('/api/cards', apiLimiter, require('./routes/cards'));
 
 app.get('/health', (req, res) => {
   const mongoose = require('mongoose');
