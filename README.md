@@ -2,7 +2,9 @@
 
 A real-time collaborative Kanban board — built to explore the engineering problems that separate a CRUD app from a genuinely multi-user product: live synchronization across clients, conflict resolution when edits race each other, and the caching/rate-limiting layer a real API needs at scale.
 
-**[Demo video](#)** &middot; **[Live demo](#)** *(links added once recorded/deployed)*
+**[Live demo](https://syncboard-pied.vercel.app)** *(demo video link added once recorded)*
+
+Note: the backend runs on Render's free tier, which spins down after periods of inactivity - the first request after idle time may take 30-60 seconds to wake up.
 
 ---
 
@@ -75,7 +77,7 @@ If not cached: fetch from MongoDB -> store in Redis (60s TTL) -> return
 | Backend | Node.js, Express |
 | Real-time | Socket.io |
 | Database | MongoDB (Atlas in production; Docker Compose for local dev) |
-| Caching | Redis (Docker Compose locally; Upstash planned for deployment) |
+| Caching | Redis (Docker Compose locally; Upstash in production) |
 | Auth | JWT + bcrypt |
 | Testing | Jest, Supertest, `mongodb-memory-server` |
 | Rate limiting | `express-rate-limit` |
@@ -132,7 +134,10 @@ npm test
 - Presence indicators (who's currently viewing/editing a board)
 - Column-level activity logging (cards already have a per-card activity log; columns don't yet)
 - Field-level conflict detection instead of version-level, to narrow the blast radius of a race further
-- Full deployment (Vercel + Render/Railway + MongoDB Atlas + Upstash)
+
+## Deployment
+
+Deployed live: Vercel (frontend), Render (backend), MongoDB Atlas (database), Upstash (Redis). CORS is locked to the deployed frontend's exact origin in production; local development still allows all origins for convenience.
 
 ## Project structure
 
