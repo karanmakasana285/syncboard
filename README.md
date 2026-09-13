@@ -24,11 +24,13 @@ This project answers each of those with a real, tested implementation — not ju
 - **Boards, columns, and cards** — full CRUD, drag-and-drop reordering (including precise drop-position detection, not just "always append")
 - **Card details** — labels, due dates, and an assignee picker drawn from the board's actual collaborators
 - **Collaborators** — invite teammates onto a board by email; a quiet, collapsed-by-default activity log on each card tracks who changed what and when, distinct from the conflict-warning indicator (which is reserved specifically for genuine version conflicts, not routine edits)
-- **Real-time collaboration** — Socket.io-powered live sync of every card/column change across all connected clients, with room-level authorization (a valid token alone isn't enough — you must actually be a collaborator on that board)
-- **Conflict resolution** — server-side version tracking detects when two edits race; the later write always succeeds (last-write-wins), the "losing" user gets a live notification if online, and a persistent conflict record is kept on the card itself so the change is never silently, untraceably lost even if that user was offline at the time
+- **Real-time collaboration** — Socket.io-powered live sync of every card/column change across all connected clients, with room-level authorization (a valid token alone isn't enough — you must actually be a collaborator on that board) and automatic re-sync of full board state on reconnect after a dropped connection
+- **Conflict resolution** — server-side version tracking, using an atomic database operation rather than a read-then-write pattern (important under genuinely simultaneous requests, not just closely-timed ones), detects when two edits race; the later write always succeeds (last-write-wins), the "losing" user gets a live notification if online, and a persistent conflict record is kept on the card itself so the change is never silently, untraceably lost even if that user was offline at the time
 - **Caching** — Redis-backed caching on board reads with automatic invalidation on every write, verified end-to-end (not just assumed to work)
 - **Rate limiting** — tiered limits (stricter on auth routes, more permissive on general API usage)
-- **Automated tests** — Jest + Supertest coverage specifically targeting the conflict-resolution logic, including a regression test for a real bug caught during manual testing
+- **Automated tests** — Jest + Supertest coverage specifically targeting the conflict-resolution logic, including a regression test for a real bug caught during manual testing, and a dedicated test simulating true concurrency via `Promise.all` to verify simultaneous requests are handled correctly
+
+Two pieces of behavior were decided early in the project's architecture and implemented afterward, in a later review pass: automatic re-sync after a dropped connection, and correct conflict detection under genuinely simultaneous (not just closely-timed) requests. The latter required moving the conflict-check logic to an atomic database operation, since two truly simultaneous requests could otherwise both read the same version before either wrote - the new concurrency test above specifically verifies this is handled correctly.
 
 ## Architecture
 
