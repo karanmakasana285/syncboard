@@ -1,16 +1,23 @@
 const request = require('supertest');
 const { app } = require('../app');
 const { connectTestDB, closeTestDB, clearTestDB } = require('./setup');
+const { redisClient, connectRedis } = require('../config/redis');
 
 // Ensure JWT_SECRET exists for tests even if .env isn't loaded in this context
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-for-jest-only';
 
 beforeAll(async () => {
   await connectTestDB();
+  // routes/cards.js and routes/columns.js call redisClient.del() on every
+  // write (added in Step 7) - without connecting here, every column/card
+  // creation in these tests fails with "The client is closed", which
+  // silently broke this entire suite for two steps before anyone noticed.
+  await connectRedis();
 });
 
 afterAll(async () => {
   await closeTestDB();
+  await redisClient.quit();
 });
 
 afterEach(async () => {
@@ -86,6 +93,48 @@ describe('Card conflict detection', () => {
     expect(res.body.description).toBe('User B description');
     // a conflict record should now exist, proving the mismatch was detected
     expect(res.body.conflictHistory.length).toBeGreaterThan(0);
+  });
+
+  test('two genuinely simultaneous updates do not silently lose data (true concurrency, not sequential)', async () => {
+    const token = await createUser('user4@test.com');
+    const { card } = await createBoardColumnCard(token);
+
+    // fire both requests at once with Promise.all - this is the key difference
+    // from every other test here, which sends requests one after another.
+    // Both requests use the SAME expectedVersion (the card's original version),
+    // simulating two clients that both loaded the card before either saved -
+    // exactly the scenario the old read-then-save pattern could mishandle.
+    const [resA, resB] = await Promise.all([
+      request(app)
+        .patch(`/api/cards/${card._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ title: 'Title from request A', expectedVersion: card.version }),
+      request(app)
+        .patch(`/api/cards/${card._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ description: 'Description from request B', expectedVersion: card.version }),
+    ]);
+
+    // both requests must succeed - true last-write-wins means neither is
+    // rejected, regardless of the race
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+
+    // the version must have incremented exactly twice - once per request -
+    // proving MongoDB's atomic $inc correctly serialized both writes rather
+    // than one silently clobbering the other's increment
+    const finalVersion = Math.max(resA.body.version, resB.body.version);
+    expect(finalVersion).toBe(card.version + 2);
+
+    // at least one of the two requests must show a detected conflict,
+    // since they raced on the same expectedVersion - this is the crux of
+    // the fix: the OLD code could let both requests believe there was no
+    // conflict, since both might read the same stale version before either
+    // wrote. With the atomic update, whichever request's write actually
+    // executes second MUST see the first one's already-applied change.
+    const eitherDetectedConflict =
+      resA.body.conflictHistory.length > 0 || resB.body.conflictHistory.length > 0;
+    expect(eitherDetectedConflict).toBe(true);
   });
 
   test('untouched fields are not overwritten during a conflicting update', async () => {
