@@ -1,10 +1,11 @@
+/* eslint-disable no-unused-vars */
 import { useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import Card from './Card'
 import api from '../api/client'
 
-export default function Column({ column, cards, onAddCard, openCardId, setOpenCardId }) {
+export default function Column({ column, cards, onAddCard, openCardId, setOpenCardId, boardMembers }) {
   const { setNodeRef } = useDroppable({ id: column._id })
   const [isAdding, setIsAdding] = useState(false)
   const [newTitle, setNewTitle] = useState('')
@@ -129,7 +130,7 @@ export default function Column({ column, cards, onAddCard, openCardId, setOpenCa
           </div>
         ) : (
           cards.map((card) => (
-            <Card key={card._id} card={card} openCardId={openCardId} setOpenCardId={setOpenCardId} />
+            <Card key={card._id} card={card} openCardId={openCardId} setOpenCardId={setOpenCardId} boardMembers={boardMembers} />
           ))
         )}
       </SortableContext>

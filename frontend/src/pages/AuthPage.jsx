@@ -42,6 +42,7 @@ export default function AuthPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -135,14 +136,35 @@ export default function AuthPage() {
             onChange={(e) => setEmail(e.target.value)}
             style={inputStyle}
           />
-          <input
-            placeholder="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={inputStyle}
-          />
-          {error && <p style={{ color: 'var(--color-conflict)', fontSize: 14, marginBottom: 12 }}>{error}</p>}
+          <div style={{ position: 'relative' }}>
+            <input
+              placeholder="Password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{ ...inputStyle, paddingRight: 50 }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              style={{
+                position: 'absolute',
+                right: 18,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-ink-secondary)',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {error && <p style={{ color: 'var(--color-conflict)', fontSize: 14, margin: '12px 0 0' }}>{error}</p>}
           <button type="submit" style={submitStyle}>
             {mode === 'login' ? 'Log in' : 'Create account'}
           </button>

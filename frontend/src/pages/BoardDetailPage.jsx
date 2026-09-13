@@ -10,6 +10,7 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import Column from '../components/Column'
+import Avatar from '../components/Avatar'
 import { connectSocket, disconnectSocket } from '../socket'
 
 function AddColumnCard({ onAdd }) {
@@ -85,6 +86,125 @@ function AddColumnCard({ onAdd }) {
       }}
     >
       <p style={{ color: 'var(--color-ink-faint)', fontSize: 14, margin: 0 }}>+ Add column</p>
+    </div>
+  )
+}
+
+function CollaboratorsBar({ board, onBoardUpdated }) {
+  const [inviting, setInviting] = useState(false)
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const members = [board.owner, ...(board.collaborators || [])].filter(Boolean)
+
+  async function sendInvite() {
+    if (!email.trim()) return
+    setSending(true)
+    setError('')
+    try {
+      const res = await api.post(`/boards/${board._id}/invite`, { email: email.trim() })
+      onBoardUpdated(res.data)
+      setEmail('')
+      setInviting(false)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to send invite')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') sendInvite()
+    if (e.key === 'Escape') {
+      setInviting(false)
+      setError('')
+      setEmail('')
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+      <div style={{ display: 'flex' }}>
+        {members.map((person, i) => (
+          <div key={person._id} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+            <Avatar person={person} />
+          </div>
+        ))}
+      </div>
+
+      {inviting ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            autoFocus
+            type="email"
+            placeholder="Invite by email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={handleKeyDown}
+            style={{
+              padding: '9px 14px',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              fontSize: 14,
+              fontFamily: 'var(--font-body)',
+              background: 'var(--color-surface)',
+              width: 220,
+            }}
+          />
+          <button
+            onClick={sendInvite}
+            disabled={sending}
+            style={{
+              padding: '9px 16px',
+              border: 'none',
+              borderRadius: 8,
+              background: 'var(--color-accent)',
+              color: 'white',
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            {sending ? 'Sending...' : 'Send invite'}
+          </button>
+          <button
+            onClick={() => {
+              setInviting(false)
+              setError('')
+              setEmail('')
+            }}
+            style={{
+              padding: '9px 14px',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              background: 'var(--color-surface)',
+              color: 'var(--color-ink)',
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setInviting(true)}
+          style={{
+            padding: '9px 16px',
+            border: '1px solid var(--color-border)',
+            borderRadius: 8,
+            background: 'var(--color-surface)',
+            color: 'var(--color-ink)',
+            fontSize: 14,
+            cursor: 'pointer',
+          }}
+        >
+          + Invite
+        </button>
+      )}
+
+      {error && <p style={{ color: 'var(--color-conflict)', fontSize: 14, margin: 0 }}>{error}</p>}
     </div>
   )
 }
@@ -303,6 +423,8 @@ export default function BoardDetailPage() {
     )
   }
 
+  const boardMembers = [board.owner, ...(board.collaborators || [])].filter(Boolean)
+
   return (
     <div style={{ padding: '32px 32px 48px', maxWidth: 1200, margin: '0 auto' }}>
       <Link
@@ -317,11 +439,13 @@ export default function BoardDetailPage() {
           fontSize: 28,
           fontWeight: 500,
           color: 'var(--color-ink)',
-          margin: '4px 0 16px',
+          margin: '4px 0 20px',
         }}
       >
         {board.name}
       </h1>
+
+      <CollaboratorsBar board={board} onBoardUpdated={setBoard} />
 
       <div style={{ borderBottom: '1px solid var(--color-border)', marginBottom: 24 }} />
 
@@ -370,6 +494,7 @@ export default function BoardDetailPage() {
               onAddCard={(title) => handleCreateCard(col._id, title)}
               openCardId={openCardId}
               setOpenCardId={setOpenCardId}
+              boardMembers={boardMembers}
             />
           ))}
           <AddColumnCard onAdd={handleCreateColumn} />

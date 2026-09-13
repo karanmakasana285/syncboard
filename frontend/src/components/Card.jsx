@@ -1,10 +1,12 @@
+/* eslint-disable no-unused-vars */
 import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import api from '../api/client'
 import CardEditModal from './CardEditModal'
+import Avatar from './Avatar'
 
-export default function Card({ card, openCardId, setOpenCardId }) {
+export default function Card({ card, openCardId, setOpenCardId, boardMembers }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card._id,
@@ -40,6 +42,9 @@ export default function Card({ card, openCardId, setOpenCardId }) {
 
   const isOpen = openCardId === card._id
   const hasConflict = card.conflictHistory?.length > 0
+  const hasLabels = card.labels?.length > 0
+  const hasDueDate = !!card.dueDate
+  const hasAssignees = card.assignees?.length > 0
 
   if (confirmingDelete) {
     return (
@@ -112,13 +117,64 @@ export default function Card({ card, openCardId, setOpenCardId }) {
             ×
           </button>
         </div>
+
+        {hasLabels && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+            {card.labels.map((label, i) => (
+              <span
+                key={i}
+                style={{
+                  background: 'var(--color-accent-bg)',
+                  color: 'var(--color-accent)',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: '2px 9px',
+                  borderRadius: 999,
+                }}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {(hasDueDate || hasAssignees) && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: 9,
+            }}
+          >
+            {hasDueDate ? (
+              <span style={{ color: 'var(--color-ink-secondary)', fontSize: 11.5 }}>
+                Due {new Date(card.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+            ) : (
+              <span />
+            )}
+            {hasAssignees && (
+              <div style={{ display: 'flex' }}>
+                {card.assignees.map((person, i) => (
+                  <div key={person._id || i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
+                    <Avatar person={person} size={20} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {hasConflict && (
           <p style={{ color: 'var(--color-conflict)', fontSize: 11.5, margin: '7px 0 0' }}>
             &#9888; Updated while you were editing
           </p>
         )}
       </div>
-      {isOpen && <CardEditModal card={card} onClose={() => setOpenCardId(null)} />}
+      {isOpen && (
+        <CardEditModal card={card} onClose={() => setOpenCardId(null)} boardMembers={boardMembers} />
+      )}
     </>
   )
 }
