@@ -230,7 +230,15 @@ export default function BoardDetailPage() {
     const socket = connectSocket()
     if (!socket) return
 
-    socket.emit('board:join', boardId)
+    // fires on the FIRST connection AND every time Socket.io successfully
+    // reconnects after a dropped connection (e.g. brief wifi loss). Re-joining
+    // the room and re-fetching the board here is what actually implements
+    // locked decision #4 - "on reconnect, re-fetch full board state via REST" -
+    // which previously only existed on paper, not in this file.
+    socket.on('connect', () => {
+      socket.emit('board:join', boardId)
+      loadBoard()
+    })
 
     socket.on('board:error', (err) => {
       console.error('Socket board:error:', err)
