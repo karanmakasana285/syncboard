@@ -2,14 +2,15 @@ import { io } from 'socket.io-client'
 
 let socket = null
 
-// creates the socket connection using the current JWT - called once when
-// a user logs in / lands on a board, not on every render
+// VITE_SOCKET_URL is set on Vercel to the real deployed backend's root URL
+// (no /api suffix - Socket.io connects at the server root, not under /api).
+// Locally, falls back to our dev server.
 export function connectSocket() {
   const token = localStorage.getItem('token')
   if (!token) return null
 
-  socket = io('http://localhost:5001', {
-    auth: { token }, // read by the backend's io.use() middleware during handshake
+  socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001', {
+    auth: { token },
   })
 
   return socket

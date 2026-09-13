@@ -5,8 +5,11 @@ const { getAuthorizedBoard } = require('../utils/authorize');
 let io; // module-level singleton so other files (route handlers) can access it later
 
 function initSocket(httpServer) {
+  // FRONTEND_URL is set on the deployment platform to the real deployed
+  // frontend origin (e.g. https://syncboard.vercel.app). Locally, it falls
+  // back to '*' since local dev has no fixed origin to lock down to.
   io = new Server(httpServer, {
-    cors: { origin: '*' }, // fine for local dev; tighten to your real frontend URL before deploying
+    cors: { origin: process.env.FRONTEND_URL || '*' },
   });
 
   // runs once per new socket connection, BEFORE 'connection' fires - this is

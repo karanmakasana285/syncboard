@@ -1,7 +1,11 @@
 const { createClient } = require('redis');
 
+// REDIS_URL is set on the deployment platform (Render) to the Upstash
+// rediss:// connection string. Locally, it falls back to our Docker Compose
+// Redis container. node-redis automatically enables TLS when it sees the
+// rediss:// scheme, so no extra config is needed for the Upstash case.
 const redisClient = createClient({
-  url: 'redis://localhost:6379', // matches the port we exposed in docker-compose.yml
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
 });
 
 redisClient.on('error', (err) => console.error('Redis error:', err.message));
