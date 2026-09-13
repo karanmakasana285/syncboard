@@ -36,10 +36,14 @@ router.post('/', async (req, res) => {
       labels,
       dueDate,
       assignees,
+      activityLog: [{ type: 'created', message: 'created this card', by: req.userId }],
     });
 
+    await card.populate('assignees', 'name email');
+    await card.populate('activityLog.by', 'name');
+
     getIO().to(column.board.toString()).emit('card:created', card);
-    await redisClient.del(`board:${column.board}`); // invalidate - board's cached data may now be stale
+    await redisClient.del(`board:${column.board}`);
 
     res.status(201).json(card);
   } catch (err) {
@@ -53,7 +57,10 @@ router.get('/column/:columnId', async (req, res) => {
     const column = await authorizeViaColumn(req.params.columnId, req.userId);
     if (!column) return res.status(404).json({ error: 'Column not found' });
 
-    const cards = await Card.find({ column: req.params.columnId }).sort('order');
+    const cards = await Card.find({ column: req.params.columnId })
+      .sort('order')
+      .populate('assignees', 'name email')
+      .populate('activityLog.by', 'name');
     res.json(cards);
   } catch (err) {
     console.error('List cards error:', err.message);
@@ -69,17 +76,10 @@ router.patch('/:id', async (req, res) => {
     const originalColumn = await authorizeViaColumn(card.column, req.userId);
     if (!originalColumn) return res.status(404).json({ error: 'Card not found' });
 
-    // CONFLICT DETECTION: compare the version the client THINKS it's editing
-    // against the card's actual current version. If they differ, someone else
-    // saved a change after this client last loaded the card.
-    // expectedVersion is optional (drag/reorder updates don't send it) -
-    // only title/description edits from the modal include it, since that's
-    // the only flow where a stale-snapshot conflict can actually happen.
     const { expectedVersion } = req.body;
     const isConflict = expectedVersion !== undefined && expectedVersion !== card.version;
 
     if (isConflict) {
-      // record what's about to be overwritten, before we apply the new values
       card.conflictHistory.push({
         overwrittenBy: req.userId,
         previousTitle: card.title,
@@ -93,7 +93,20 @@ router.patch('/:id', async (req, res) => {
       card.column = req.body.columnId;
     }
 
+    // build a plain-language summary of what actually changed, for the
+    // activity log - only for fields a human would care about seeing in a
+    // history (deliberately excludes plain drag/reorder saves, which only
+    // send { order }, to keep the log meaningful rather than noisy)
+    const changeDescriptions = [];
     const { title, description, order, labels, dueDate, assignees } = req.body;
+
+    if (title !== undefined && title !== card.title) changeDescriptions.push('changed the title');
+    if (description !== undefined && description !== card.description) changeDescriptions.push('updated the description');
+    if (labels !== undefined) changeDescriptions.push('updated labels');
+    if (dueDate !== undefined) changeDescriptions.push(dueDate ? 'set a due date' : 'removed the due date');
+    if (assignees !== undefined) changeDescriptions.push('updated assignees');
+    if (req.body.columnId && req.body.columnId !== originalColumn._id.toString()) changeDescriptions.push('moved this card');
+
     if (title !== undefined) card.title = title;
     if (description !== undefined) card.description = description;
     if (order !== undefined) card.order = order;
@@ -101,15 +114,24 @@ router.patch('/:id', async (req, res) => {
     if (dueDate !== undefined) card.dueDate = dueDate;
     if (assignees !== undefined) card.assignees = assignees;
 
+    if (changeDescriptions.length > 0) {
+      card.activityLog.push({
+        type: isConflict ? 'conflict' : 'updated',
+        message: isConflict
+          ? `overwrote a concurrent edit while ${changeDescriptions.join(', ')}`
+          : changeDescriptions.join(', '),
+        by: req.userId,
+      });
+    }
+
     card.version += 1;
     await card.save();
+    await card.populate('assignees', 'name email');
+    await card.populate('activityLog.by', 'name');
 
     getIO().to(originalColumn.board.toString()).emit('card:updated', card);
     await redisClient.del(`board:${originalColumn.board}`);
 
-    // separate, targeted event just for the conflict itself - frontend clients
-    // filter this to only show a toast if THEY currently have this exact card
-    // open for editing (Option A from the Step 6 design discussion)
     if (isConflict) {
       getIO().to(originalColumn.board.toString()).emit('card:conflict', {
         cardId: card._id,

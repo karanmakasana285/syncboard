@@ -18,6 +18,15 @@ const cardSchema = new mongoose.Schema(
         previousDescription: String,
       },
     ], // populated only when a version mismatch is detected during save - not a full edit log
+    activityLog: [
+      {
+        type: { type: String, enum: ['created', 'updated', 'conflict'], required: true },
+        message: { type: String, required: true },
+        by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        at: { type: Date, default: Date.now },
+      },
+    ], // general quiet history - shown collapsed by default in the UI, distinct
+       // from conflictHistory which specifically drives the visible warning icon
   },
   { timestamps: true }
 );
