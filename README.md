@@ -20,6 +20,8 @@ This project answers each of those with a real, tested implementation — not ju
 
 - **Auth** — JWT-based signup/login, bcrypt password hashing
 - **Boards, columns, and cards** — full CRUD, drag-and-drop reordering (including precise drop-position detection, not just "always append")
+- **Card details** — labels, due dates, and an assignee picker drawn from the board's actual collaborators
+- **Collaborators** — invite teammates onto a board by email; a quiet, collapsed-by-default activity log on each card tracks who changed what and when, distinct from the conflict-warning indicator (which is reserved specifically for genuine version conflicts, not routine edits)
 - **Real-time collaboration** — Socket.io-powered live sync of every card/column change across all connected clients, with room-level authorization (a valid token alone isn't enough — you must actually be a collaborator on that board)
 - **Conflict resolution** — server-side version tracking detects when two edits race; the later write always succeeds (last-write-wins), the "losing" user gets a live notification if online, and a persistent conflict record is kept on the card itself so the change is never silently, untraceably lost even if that user was offline at the time
 - **Caching** — Redis-backed caching on board reads with automatic invalidation on every write, verified end-to-end (not just assumed to work)
@@ -122,11 +124,13 @@ npm test
 - **Same-field conflicts are not merged.** If two users edit the exact same field at nearly the same moment, the later write wins outright — there's no field-level merge or operational-transform logic (the much harder approach tools like Google Docs use). This was a deliberate simplicity tradeoff for this project's scope.
 - **Conflict notifications broadcast to the whole board room**, filtered client-side to only display for the affected user's open card. This is fine given the trust model (board collaborators already see all board activity) but wouldn't be appropriate in a system with per-user-private cards.
 - **JWT is stored in `localStorage`**, not an httpOnly cookie — simpler for this project's scope, at the cost of theoretical XSS exposure a cookie-based approach would avoid.
+- **Board invites are instant, with no accept/decline step.** Inviting someone by email adds them to the board immediately. Since board membership is persistent (not a one-time share), a real accept/decline flow - closer to how GitHub or Slack handle workspace invites - would be the more correct design; noted here as a deliberate, tracked simplification rather than an oversight.
 
 ## What I'd build next
 
+- Invite accept/decline flow, replacing the current instant-add model
 - Presence indicators (who's currently viewing/editing a board)
-- An activity log / audit trail of card and column changes
+- Column-level activity logging (cards already have a per-card activity log; columns don't yet)
 - Field-level conflict detection instead of version-level, to narrow the blast radius of a race further
 - Full deployment (Vercel + Render/Railway + MongoDB Atlas + Upstash)
 
