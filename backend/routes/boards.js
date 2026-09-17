@@ -40,18 +40,23 @@ router.get('/', async (req, res) => {
 // can actually display who's on the board, not just raw ObjectIds.
 router.get('/:id', async (req, res) => {
   try {
+    // Authorization is checked FIRST, before the cache lookup, on every
+    // request - regardless of whether this ends up being a cache hit or a
+    // cache miss. Checking it only on the miss path (after the cache lookup)
+    // would mean a cache hit skips authorization entirely, letting any
+    // logged-in user read a cached board they have no access to just by
+    // knowing/guessing its id. getAuthorizedBoard uses raw ids (fast, no
+    // populate needed here) - once authorized, we separately fetch WITH
+    // populate for the actual response, since the frontend needs real names.
+    const authorized = await getAuthorizedBoard(req.params.id, req.userId);
+    if (!authorized) return res.status(404).json({ error: 'Board not found' });
+
     const cacheKey = `board:${req.params.id}`;
 
     const cached = await redisClient.get(cacheKey);
     if (cached) {
       return res.json(JSON.parse(cached));
     }
-
-    // getAuthorizedBoard does the authorization check using raw IDs (fast,
-    // no populate needed there) - once authorized, we re-fetch WITH populate
-    // for the actual response, since the frontend needs real names.
-    const authorized = await getAuthorizedBoard(req.params.id, req.userId);
-    if (!authorized) return res.status(404).json({ error: 'Board not found' });
 
     const board = await Board.findById(req.params.id)
       .populate('owner', 'name email')
