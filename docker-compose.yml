@@ -1,12 +1,4 @@
 services:
-  mongo:
-    image: mongo:7
-    container_name: syncboard-mongo
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-
   redis:
     image: redis:7
     container_name: syncboard-redis
@@ -16,5 +8,4 @@ services:
       - redis-data:/data
 
 volumes:
-  mongo-data:
   redis-data:
