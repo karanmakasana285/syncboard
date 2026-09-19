@@ -76,7 +76,7 @@ If not cached: fetch from MongoDB -> store in Redis (60s TTL) -> return
 | Layer | Choice |
 |---|---|
 | Frontend | React (Vite), `@dnd-kit` for drag-and-drop |
-| Backend | Node.js, Express |
+| Backend | Node.js, Express, Docker |
 | Real-time | Socket.io |
 | Database | MongoDB (Atlas in production; Docker Compose for local dev) |
 | Caching | Redis (Docker Compose locally; Upstash in production) |
@@ -139,7 +139,7 @@ npm test
 
 ## Deployment
 
-Deployed live: Vercel (frontend), Render (backend), MongoDB Atlas (database), Upstash (Redis). CORS is locked to the deployed frontend's exact origin in production; local development still allows all origins for convenience.
+Deployed live: Vercel (frontend), Render (backend, containerized and deployed via Docker), MongoDB Atlas (database), Upstash (Redis). CORS is locked to the deployed frontend's exact origin in production; local development still allows all origins for convenience.
 
 ## Project structure
 
