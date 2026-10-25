@@ -31,6 +31,16 @@ function initSocket(httpServer) {
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id} (user ${socket.userId})`);
 
+    // Every connected socket automatically joins a room keyed to its own
+    // user id - not a board room. This is for events aimed at a specific
+    // PERSON regardless of which board they're about (e.g. "you've been
+    // invited to a board"), where the recipient isn't a board collaborator
+    // yet and so can't be reached via a board room broadcast. Unlike
+    // board:join, this needs no explicit client request or authorization
+    // check - a user is always allowed to hear about things addressed to
+    // themselves.
+    socket.join(`user:${socket.userId}`);
+
     // client asks to join a specific board's room. We re-check authorization
     // HERE too (locked decision #5) - a valid JWT alone isn't enough, the user
     // must actually be the board's owner or a collaborator.
