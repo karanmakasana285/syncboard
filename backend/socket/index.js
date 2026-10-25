@@ -6,6 +6,34 @@ const { getAuthorizedBoard } = require('../utils/authorize');
 
 let io; // module-level singleton so other files (route handlers) can access it later
 
+// Presence = who currently has a board open, and whether they are active or
+// idle. One person can have several tabs (several sockets); they count as
+// "active" if ANY tab is active and "idle" only if ALL tabs are idle.
+// fetchSockets() goes through the adapter, so with the Redis adapter this
+// also sees sockets connected to other backend instances.
+async function computePresence(boardId, excludeSocketId) {
+  const sockets = await io.in(boardId).fetchSockets();
+  const byUser = new Map();
+  for (const s of sockets) {
+    if (s.id === excludeSocketId) continue;
+    const { userId, presenceStatus } = s.data;
+    if (!userId) continue;
+    const status = presenceStatus === 'idle' ? 'idle' : 'active';
+    const existing = byUser.get(userId);
+    if (!existing || status === 'active') byUser.set(userId, status);
+  }
+  return [...byUser].map(([userId, status]) => ({ userId, status }));
+}
+
+async function broadcastPresence(boardId, excludeSocketId) {
+  try {
+    const presence = await computePresence(boardId, excludeSocketId);
+    io.to(boardId).emit('presence:update', presence);
+  } catch (err) {
+    console.error('Presence broadcast failed:', err.message);
+  }
+}
+
 function initSocket(httpServer) {
   // FRONTEND_URL is set on the deployment platform to the real deployed
   // frontend origin (e.g. https://syncboard.vercel.app). Locally, it falls
@@ -60,6 +88,11 @@ function initSocket(httpServer) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.userId; // attach for use in event handlers below
+      // socket.data (not plain properties) is what fetchSockets() exposes for
+      // sockets on OTHER instances when the Redis adapter is attached, which
+      // presence needs to read.
+      socket.data.userId = decoded.userId;
+      socket.data.presenceStatus = 'active';
       next();
     } catch (err) {
       next(new Error('Invalid or expired token'));
@@ -90,10 +123,29 @@ function initSocket(httpServer) {
           return;
         }
         socket.join(boardId);
+        socket.data.boardId = boardId; // a socket is only ever on one board page
         console.log(`User ${socket.userId} joined board room ${boardId}`);
+        await broadcastPresence(boardId);
       } catch (err) {
         socket.emit('board:error', { error: 'Failed to join board' });
       }
+    });
+
+    // Client reports 'active' or 'idle' only when its status CHANGES (the
+    // idle timer lives in the browser), so this is low-volume.
+    socket.on('presence:status', async (status) => {
+      if (status !== 'active' && status !== 'idle') return;
+      if (socket.data.presenceStatus === status) return;
+      socket.data.presenceStatus = status;
+      if (socket.data.boardId) await broadcastPresence(socket.data.boardId);
+    });
+
+    // 'disconnecting' (not 'disconnect') because the socket is still in its
+    // rooms at this point, so we still know which board to notify; by the
+    // time 'disconnect' fires it has already left them. The departing
+    // socket is excluded from the list we send.
+    socket.on('disconnecting', () => {
+      if (socket.data.boardId) broadcastPresence(socket.data.boardId, socket.id);
     });
 
     socket.on('disconnect', () => {

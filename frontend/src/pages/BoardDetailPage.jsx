@@ -12,6 +12,7 @@ import {
 import Column from '../components/Column'
 import Avatar from '../components/Avatar'
 import { connectSocket, disconnectSocket } from '../socket'
+import { createIdleDetector } from '../utils/idleDetector'
 
 function AddColumnCard({ onAdd }) {
   const [isAdding, setIsAdding] = useState(false)
@@ -90,7 +91,7 @@ function AddColumnCard({ onAdd }) {
   )
 }
 
-function CollaboratorsBar({ board, onBoardUpdated }) {
+function CollaboratorsBar({ board, onBoardUpdated, presence = {} }) {
   const [inviting, setInviting] = useState(false)
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
@@ -128,8 +129,29 @@ function CollaboratorsBar({ board, onBoardUpdated }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
       <div style={{ display: 'flex' }}>
         {members.map((person, i) => (
-          <div key={person._id} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+          <div key={person._id} style={{ marginLeft: i === 0 ? 0 : -8, position: 'relative' }}>
             <Avatar person={person} />
+            {presence[person._id] && (
+              <span
+                title={`${person.name} - ${presence[person._id] === 'active' ? 'active now' : 'away'}`}
+                style={{
+                  position: 'absolute',
+                  right: -1,
+                  bottom: -1,
+                  width: 11,
+                  height: 11,
+                  borderRadius: '50%',
+                  boxSizing: 'border-box',
+                  border: '2px solid var(--color-paper)',
+                  background:
+                    presence[person._id] === 'active' ? 'var(--color-presence-active)' : 'var(--color-paper)',
+                  // away = hollow ring instead of a filled dot, so the two
+                  // states differ by shape, not only colour
+                  boxShadow:
+                    presence[person._id] === 'active' ? 'none' : '0 0 0 1.5px var(--color-ink-faint) inset',
+                }}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -226,6 +248,8 @@ export default function BoardDetailPage() {
   const [error, setError] = useState('')
   const [openCardId, setOpenCardId] = useState(null)
   const [conflictToast, setConflictToast] = useState(null)
+  // userId -> 'active' | 'idle' for everyone currently viewing this board
+  const [presence, setPresence] = useState({})
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -239,6 +263,12 @@ export default function BoardDetailPage() {
     const socket = connectSocket()
     if (!socket) return
 
+    // The idle timer lives here in the browser; the server just relays the
+    // status. onChange fires only when active/idle actually flips.
+    const idleDetector = createIdleDetector({
+      onChange: (status) => socket.emit('presence:status', status),
+    })
+
     // fires on the FIRST connection AND every time Socket.io successfully
     // reconnects after a dropped connection (e.g. brief wifi loss). Re-joining
     // the room and re-fetching the board here is what actually implements
@@ -246,7 +276,14 @@ export default function BoardDetailPage() {
     // which previously only existed on paper, not in this file.
     socket.on('connect', () => {
       socket.emit('board:join', boardId)
+      // a fresh server-side socket always starts as 'active', so if this tab
+      // is already idle (e.g. reconnected while in the background), say so
+      if (idleDetector.getStatus() === 'idle') socket.emit('presence:status', 'idle')
       loadBoard()
+    })
+
+    socket.on('presence:update', (list) => {
+      setPresence(Object.fromEntries(list.map((p) => [p.userId, p.status])))
     })
 
     socket.on('board:error', (err) => {
@@ -313,6 +350,7 @@ export default function BoardDetailPage() {
     })
 
     return () => {
+      idleDetector.stop()
       disconnectSocket()
     }
   }, [boardId])
@@ -462,7 +500,7 @@ export default function BoardDetailPage() {
         {board.name}
       </h1>
 
-      <CollaboratorsBar board={board} onBoardUpdated={setBoard} />
+      <CollaboratorsBar board={board} onBoardUpdated={setBoard} presence={presence} />
 
       <div style={{ borderBottom: '1px solid var(--color-border)', marginBottom: 24 }} />
 
