@@ -97,6 +97,7 @@ function CollaboratorsBar({ board, onBoardUpdated }) {
   const [sending, setSending] = useState(false)
 
   const members = [board.owner, ...(board.collaborators || [])].filter(Boolean)
+  const pending = board.pendingInvites || []
 
   async function sendInvite() {
     if (!email.trim()) return
@@ -132,6 +133,14 @@ function CollaboratorsBar({ board, onBoardUpdated }) {
           </div>
         ))}
       </div>
+
+      {pending.length > 0 && (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-ink-faint)' }}>
+          {pending.length === 1
+            ? `${pending[0].name || pending[0].email} hasn't accepted yet`
+            : `${pending.length} invites pending`}
+        </p>
+      )}
 
       {inviting ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
