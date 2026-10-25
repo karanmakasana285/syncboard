@@ -1,5 +1,7 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { redisClient } = require('../config/redis');
 const { getAuthorizedBoard } = require('../utils/authorize');
 
 let io; // module-level singleton so other files (route handlers) can access it later
@@ -11,6 +13,42 @@ function initSocket(httpServer) {
   io = new Server(httpServer, {
     cors: { origin: process.env.FRONTEND_URL || '*' },
   });
+
+  // Socket.io's default adapter tracks room membership in plain in-memory
+  // objects, scoped to THIS process only. That's fine for a single backend
+  // instance (today's actual deployment), but if this ever ran as multiple
+  // instances behind a load balancer, a client connected to instance A
+  // would never see a broadcast fired from instance B, even if both
+  // clients are "in the same room" logically - each instance only knows
+  // about its own locally-connected sockets.
+  //
+  // The Redis adapter fixes that: every instance publishes its emits to a
+  // shared Redis pub/sub channel, and every instance (including the one
+  // that emitted) subscribes to that channel and forwards matching events
+  // to its own local sockets. Redis becomes the shared relay connecting
+  // otherwise-isolated processes.
+  //
+  // Two separate connections are required (one for publishing, one for
+  // subscribing) because a single Redis connection can't issue normal
+  // commands while it's blocked listening for pub/sub messages -
+  // .duplicate() clones the existing client's connection config without
+  // reusing its actual connection. Attached asynchronously since connecting
+  // two new Redis clients can't happen synchronously inside this function;
+  // the default in-memory adapter (correct for today's single instance)
+  // is in effect during the brief window before this resolves.
+  const pubClient = redisClient.duplicate();
+  const subClient = pubClient.duplicate();
+  pubClient.on('error', (err) => console.error('Redis adapter pub client error:', err.message));
+  subClient.on('error', (err) => console.error('Redis adapter sub client error:', err.message));
+
+  Promise.all([pubClient.connect(), subClient.connect()])
+    .then(() => {
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('Socket.io Redis adapter attached');
+    })
+    .catch((err) => {
+      console.error('Failed to attach Socket.io Redis adapter:', err.message);
+    });
 
   // runs once per new socket connection, BEFORE 'connection' fires - this is
   // where we verify the JWT, since sockets don't have per-request headers
